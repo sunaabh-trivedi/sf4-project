@@ -137,7 +137,7 @@ void loop()
   packet.wind_spd = wind_spd;
   packet.wind_dir = wind_dir;
   crc.restart();
-  crc.add((uint8_t*) &packet, 21);
+  crc.add((uint8_t*) &packet, 22);
   packet.checksum = crc.calc();
 
   // Write packet onto serial link
