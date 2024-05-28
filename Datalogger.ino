@@ -3,7 +3,7 @@
 #include <DFRobot_LIS2DW12.h> // by DFRobot
 #include "CRC32.h"            //CRC by Rob Tillart
 
-// #define DEBUG // Uncomment this line for debug
+#define DEBUG // Uncomment this line for debug
 // When debug on, loop time >20 ms because of serial prints
 // When debug off, loop takes ~6 ms so ok
 
@@ -121,6 +121,19 @@ void loop()
   float wind_spd = float(inc_enc_count) / 24.0 / loop_period * (2*PI*0.04);  // 0.04 m radius
   inc_enc_count = 0;  
 
+  //UGLY
+  uint32_t int_altitude = 0;
+  uint32_t int_acceleration = 0;
+  uint32_t int_temperature = 0;
+  uint32_t int_humidity = 0;
+  uint32_t int_wind_spd = 0;
+  memcpy(&int_altitude, &altitude, sizeof int_altitude);
+  memcpy(&int_acceleration, &acceleration, sizeof int_acceleration);
+  memcpy(&int_temperature, &temperature, sizeof int_temperature);
+  memcpy(&int_humidity, &humidity, sizeof int_humidity);
+  memcpy(&int_wind_spd, &wind_spd, sizeof int_wind_spd);
+  //++
+
   // Update wind direction, converting gray to binary
   uint8_t wind_dir = 0;  
   wind_dir |= digitalRead(abs_enc_a) << 3;
@@ -130,20 +143,28 @@ void loop()
 
   // Assemble packet and calculate checksum
   packet.start = 0xFF;
-  packet.altitude = altitude;
-  packet.acceleration = acceleration;
-  packet.temperature = temperature;
-  packet.humidity = humidity;
-  packet.wind_spd = wind_spd;
+  packet.altitude = int_altitude;
+  packet.acceleration = int_acceleration;
+  packet.temperature = int_temperature;
+  packet.humidity = int_humidity;
+  packet.wind_spd = int_wind_spd;
   packet.wind_dir = wind_dir;
   crc.restart();
   crc.add((uint8_t*) &packet, 22);
   packet.checksum = crc.calc();
 
+
   // Write packet onto serial link
-  Serial.write((uint8_t *) &packet, sizeof(packet));
+  // Serial.write((uint8_t *) &packet, sizeof(packet));
 
   #ifdef DEBUG
+    Serial.print("Packet : ");
+    uint8_t* packet_arr = (uint8_t*) &packet;
+    for (int i=0; i<22; i++) {
+      Serial.print((int) packet_arr[i],HEX);
+    }
+    Serial.println();  
+
     Serial.print("Altitude : ");
     Serial.print(altitude);
     Serial.println(" m");
