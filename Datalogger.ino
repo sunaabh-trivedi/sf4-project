@@ -3,7 +3,7 @@
 #include <DFRobot_LIS2DW12.h> // by DFRobot
 #include "CRC32.h"            //CRC by Rob Tillart
 
-#define DEBUG // Uncomment this line for debug
+// #define DEBUG // Uncomment this line for debug
 // When debug on, loop time >20 ms because of serial prints
 // When debug off, loop takes ~6 ms so ok
 
@@ -155,7 +155,7 @@ void loop()
 
 
   // Write packet onto serial link
-  // Serial.write((uint8_t *) &packet, sizeof(packet));
+  Serial.write((uint8_t *) &packet, sizeof(packet));
 
   #ifdef DEBUG
     Serial.print("Packet : ");
