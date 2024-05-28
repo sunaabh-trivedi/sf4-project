@@ -25,6 +25,7 @@ const int humidity_analog = A0;
 
 // Define packet structure
 typedef struct {
+  uint8_t start: 8;
   uint32_t altitude   : 32; 
   uint32_t acceleration  : 32;   
   uint32_t temperature : 32;
@@ -128,6 +129,7 @@ void loop()
   wind_dir |= digitalRead(abs_enc_d)^digitalRead(abs_enc_c);
 
   // Assemble packet and calculate checksum
+  packet.start = 0xFF;
   packet.altitude = altitude;
   packet.acceleration = acceleration;
   packet.temperature = temperature;
