@@ -19,20 +19,20 @@ const int abs_enc_a = 4;
 const int abs_enc_b = 5;
 const int abs_enc_c = 6;
 const int abs_enc_d = 7;
-const int red_led = 8;
-const int green_led = 9;
+const int green_led = 8;
+const int red_led = 9;
 const int humidity_analog = A0;
 
 // Define packet structure
 typedef struct {
-  uint8_t start: 8;
-  uint32_t altitude   : 32; 
-  uint32_t acceleration  : 32;   
-  uint32_t temperature : 32;
-  uint32_t humidity : 32;
-  uint32_t wind_spd : 32;
-  uint8_t wind_dir : 8;  
-  uint32_t checksum : 32;  
+  uint8_t start;
+  uint32_t altitude; 
+  uint32_t acceleration;
+  uint32_t temperature;
+  uint32_t humidity;
+  uint32_t wind_spd;
+  uint8_t wind_dir;  
+  uint32_t checksum;  
 } packet_t;
 packet_t packet;
 
@@ -40,6 +40,14 @@ packet_t packet;
 int inc_enc_count = 0;
 unsigned long loop_time;
 const int loop_period = 20;
+bool led_enable = true;
+uint8_t error_code = 0;
+
+// ERROR CODE: //
+// 0000 -> no error
+// 0001 -> temperature error
+// 0010 -> humidity error
+// 0100 -> i2c error (i.e. accelerometer/barometer)
 
 void setup(void)
 {
@@ -73,8 +81,6 @@ void setup(void)
      Serial.println("Communication failed, check the connection and I2C address setting when using I2C communication.");
      delay(1000);
   }
-  //Serial.print("Chip ID: ");
-  //Serial.println(acceleration_sensor.getID(),HEX);
   acceleration_sensor.softReset(); // soft reset
   acceleration_sensor.continRefresh(true); // continuously collect date
   // Set data rate, filtering, and dynamic range
@@ -99,6 +105,8 @@ void setup(void)
   // +++++++++++++++ Initialise LEDs +++++++++++++++ //
   pinMode(red_led, OUTPUT);
   pinMode(green_led, OUTPUT);
+  digitalWrite(red_led, HIGH);
+  digitalWrite(green_led, LOW);
 }
 
 
@@ -111,53 +119,53 @@ void loop()
   }
   loop_time = current_time;
 
+  error_code = 0;
+
+  // Toggle LED based on serial command
+  while (Serial.available()){
+    if (Serial.read() == 0xFF){
+      led_enable = true;
+      digitalWrite(green_led, LOW);
+    } else if (Serial.read() == 0x00) {
+      led_enable = false;
+      digitalWrite(red_led, HIGH);
+      digitalWrite(green_led, HIGH);
+    }
+  }
+  digitalWrite(red_led, HIGH);
+  
   // Get sensor values 
   float altitude = pressure_sensor.readAltitudeM();
-  float acceleration = acceleration_sensor.readAccZ() - 981;
+  float acceleration = acceleration_sensor.readAccZ() - 1000;
   float temperature = pressure_sensor.readTempC();
   float humidity = humidity_calc(temperature, humidity_read(humidity_analog));
   
   // Update wind speed and reset counter value
-  float wind_spd = float(inc_enc_count) / 24.0 / loop_period * (2*PI*0.04);  // 0.04 m radius
+  float wind_spd = float(inc_enc_count) / 0.24 / loop_period * (2*PI*0.04);  // 0.04 m radius
   inc_enc_count = 0;  
-
-  //UGLY
-  uint32_t int_altitude = 0;
-  uint32_t int_acceleration = 0;
-  uint32_t int_temperature = 0;
-  uint32_t int_humidity = 0;
-  uint32_t int_wind_spd = 0;
-  memcpy(&int_altitude, &altitude, sizeof int_altitude);
-  memcpy(&int_acceleration, &acceleration, sizeof int_acceleration);
-  memcpy(&int_temperature, &temperature, sizeof int_temperature);
-  memcpy(&int_humidity, &humidity, sizeof int_humidity);
-  memcpy(&int_wind_spd, &wind_spd, sizeof int_wind_spd);
-  //++
 
   // Update wind direction, converting gray to binary
   uint8_t wind_dir = 0;  
-  wind_dir |= digitalRead(abs_enc_a) << 3;
-  wind_dir |= digitalRead(abs_enc_b)^digitalRead(abs_enc_a) << 2;
-  wind_dir |= digitalRead(abs_enc_c)^digitalRead(abs_enc_b) << 1;
-  wind_dir |= digitalRead(abs_enc_d)^digitalRead(abs_enc_c);
+  wind_dir = gray_convert(digitalRead(abs_enc_a), digitalRead(abs_enc_b), digitalRead(abs_enc_c), digitalRead(abs_enc_d));
+  wind_dir |= error_code << 4; // Pack the error code into here
 
   // Assemble packet and calculate checksum
   packet.start = 0xFF;
-  packet.altitude = int_altitude;
-  packet.acceleration = int_acceleration;
-  packet.temperature = int_temperature;
-  packet.humidity = int_humidity;
-  packet.wind_spd = int_wind_spd;
-  packet.wind_dir = wind_dir;
+  memcpy(&(packet.altitude), &altitude, sizeof wind_spd);
+  memcpy(&(packet.acceleration), &acceleration, sizeof wind_spd);
+  memcpy(&(packet.temperature), &temperature, sizeof wind_spd);
+  memcpy(&(packet.humidity), &humidity, sizeof wind_spd);
+  memcpy(&(packet.wind_spd), &wind_spd, sizeof wind_spd);
+  memcpy(&(packet.wind_dir), &wind_dir, sizeof wind_spd);
   crc.restart();
   crc.add((uint8_t*) &packet, 22);
   packet.checksum = crc.calc();
-
 
   // Write packet onto serial link
   Serial.write((uint8_t *) &packet, sizeof(packet));
 
   #ifdef DEBUG
+    Serial.println();
     Serial.print("Packet : ");
     uint8_t* packet_arr = (uint8_t*) &packet;
     for (int i=0; i<22; i++) {
@@ -185,7 +193,7 @@ void loop()
     Serial.println(" m/s");
 
     Serial.print("Wind Direction: ");
-    Serial.println(wind_dir, BIN);
+    Serial.println(wind_dir);
 
     Serial.print("CRC Checksum: ");
     Serial.println(packet.checksum, HEX);
@@ -197,6 +205,39 @@ void loop()
 // Interrupt function to increment encoder counter
 void increment(){
   inc_enc_count++;
+}
+
+// Helper function to map gray code to binary
+uint8_t gray_convert(bool a, bool b, bool c, bool d){
+  int gray = 0;
+  gray |= a << 3;
+  gray |= b << 2;
+  gray |= c << 1;
+  gray |= d;
+  switch(gray) {
+    case 0b0000: return 0;
+    case 0b0001: return 1;
+    case 0b0011: return 2;
+    case 0b0010: return 3;
+    case 0b0110: return 4;
+    case 0b0111: return 5;
+    case 0b0101: return 6;
+    case 0b0100: return 7;
+    case 0b1100: return 8;
+    case 0b1101: return 9;
+    case 0b1111: return 10;
+    case 0b1110: return 11;
+    case 0b1010: return 12;
+    case 0b1011: return 13;
+    case 0b1001: return 14;
+    case 0b1000: return 15;
+    default:
+      if (led_enable) {
+        error_code = 0b0100;
+        digitalWrite(red_led,LOW);
+      }
+      return 0;
+  }
 }
 
 // Humidity helper functions
@@ -221,7 +262,10 @@ float humidity_table[15][11] = {
 float humidity_calc(float temperature, int analog){
   //return zero if temperature or analog reading out of range
   if (temperature > 55 || temperature < 5) {
-    Serial.println("Temperature out of range");
+    error_code = 0b0001;
+    if (led_enable) {
+      digitalWrite(red_led,LOW);
+    }
     return 0;  
   }
   //calculate sensor resistance
@@ -236,6 +280,13 @@ float humidity_calc(float temperature, int analog){
   }
   //interpolate by resistance
   float humidity_val = 0;
+  //if (resistance > humidity_row[0] || resistance < humidity_row[10]){
+  if (voltage > 4.8){
+    error_code = 0b0010;
+    if (led_enable) {
+      digitalWrite(red_led,LOW);
+    }
+  }
   for (int i=0; i<10; i++){
     if (resistance < humidity_row[i] && resistance > humidity_row[i+1]) {
       humidity_val = ((humidity_row[i] - resistance) / (humidity_row[i] - humidity_row[i+1]))*5 + 20 + i*5;
